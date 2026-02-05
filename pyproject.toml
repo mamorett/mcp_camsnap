@@ -1,0 +1,9 @@
+[project]
+name = "mcp-camsnap"
+version = "0.1.0"
+dependencies = [
+    "mcp",
+]
+
+[project.scripts]
+mcp-camsnap = "mcp_camsnap:mcp.run"
