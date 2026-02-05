@@ -46,5 +46,8 @@ def capture_snap_direct(camera_rtsp_url: str, camera_name: str) -> str:
     except Exception as e:
         return f"Errore durante l'invocazione diretta di FFmpeg: {str(e)}"
 
-if __name__ == "__main__":
+def main():
     mcp.run()
+
+if __name__ == "__main__":
+    main()
