@@ -1,9 +1,3 @@
-# /// script
-# dependencies = [
-#   "mcp",
-# ]
-# ///
-
 import subprocess
 import os
 import shutil
@@ -30,12 +24,7 @@ def run_executable_stream(args: list[str], is_snap: bool = False) -> str:
             env=env
         )
         
-        try:
-            stdout, stderr = process.communicate(timeout=45)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
-            return "Errore: Timeout (45s) durante la comunicazione con la camera."
+        stdout, stderr = process.communicate(timeout=45)
         
         clean_stdout = stdout.strip()
         clean_stderr = stderr.strip()
@@ -43,9 +32,12 @@ def run_executable_stream(args: list[str], is_snap: bool = False) -> str:
         if process.returncode == 0:
             return clean_stdout or "Operazione completata."
         else:
-            # Mostra TUTTO per capire cosa dice ffmpeg
-            return f"Errore {process.returncode}\n\nSTDERR completo:\n{clean_stderr}\n\nSTDOUT:\n{clean_stdout}"
+            return f"Errore {process.returncode}\nSTDERR:\n{clean_stderr}\nSTDOUT:\n{clean_stdout}"
             
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        return "Errore: Timeout (45s)"
     except Exception as e:
         return f"Errore critico: {str(e)}"
 
@@ -65,10 +57,13 @@ def capture_snap(camera_name: str) -> str:
     time.sleep(0.5)
     
     if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
-        return f"Snapshot creato con successo: {target_path}"
+        return f"Snapshot creato: {target_path}"
     
-    # Mostra l'intero log per debug
-    return f"Cattura fallita. Dettagli completi:\n{res}"
+    return f"Cattura fallita:\n{res}"
+
+def main():
+    """Entry point per l'MCP server."""
+    mcp.run()
 
 if __name__ == "__main__":
-    mcp.run()
+    main()
