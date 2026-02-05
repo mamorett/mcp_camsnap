@@ -17,25 +17,39 @@ def run_executable_stream(args: list[str], is_snap: bool = False) -> str:
     camsnap_bin = shutil.which("camsnap") or "camsnap"
     
     try:
-        # Esegui completamente isolato con subprocess.run
-        result = subprocess.run(
-            [camsnap_bin] + args,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=45
-        )
+        # Per la list: cattura stdout normalmente
+        if not is_snap:
+            result = subprocess.run(
+                [camsnap_bin] + args,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0:
+                return result.stdout.strip() or "Nessun output"
+            else:
+                return f"Errore {result.returncode}: {result.stderr}"
         
-        clean_stdout = result.stdout.strip()
-        clean_stderr = result.stderr.strip()
-        
-        if result.returncode == 0:
-            return clean_stdout or "Operazione completata."
+        # Per lo snap: lascia stderr libero (ffmpeg ne ha bisogno)
         else:
-            return f"Errore {result.returncode}\nLOG: {clean_stderr}\nOUT: {clean_stdout}"
+            process = subprocess.Popen(
+                [camsnap_bin] + args,
+                stdout=subprocess.PIPE,
+                stderr=None,  # NON catturare stderr - lascialo libero
+                text=True
+            )
+            
+            stdout, _ = process.communicate(timeout=45)
+            
+            if process.returncode == 0:
+                return stdout.strip() or "Snap completato"
+            else:
+                return f"Errore {process.returncode} - processo terminato"
             
     except subprocess.TimeoutExpired:
-        return "Errore: Timeout (45s) durante la comunicazione con la camera."
+        if is_snap:
+            process.kill()
+        return "Errore: Timeout"
     except Exception as e:
         return f"Errore critico: {str(e)}"
 
@@ -52,11 +66,17 @@ def capture_snap(camera_name: str) -> str:
     
     res = run_executable_stream(["snap", camera_name, "--out", target_path], is_snap=True)
     
-    if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
-        file_size = os.path.getsize(target_path)
-        return f"Snapshot creato con successo: {target_path} ({file_size} bytes)"
+    # Attendi che il file sia scritto
+    time.sleep(1)
     
-    return f"Cattura fallita. Dettagli tecnici:\n{res}"
+    if os.path.exists(target_path):
+        file_size = os.path.getsize(target_path)
+        if file_size > 0:
+            return f"✓ Snapshot: {target_path} ({file_size} bytes)"
+        else:
+            return f"✗ File creato ma vuoto"
+    
+    return f"✗ File non creato. Log: {res}"
 
 if __name__ == "__main__":
     mcp.run()
