@@ -1,61 +1,65 @@
-# /// script
-# dependencies = [
-#   "mcp",
-# ]
-# ///
-
 import subprocess
 import os
-import datetime
 import shutil
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("Camsnap Manager")
 
-def run_simple(args):
-    """Esecuzione diretta: se funziona nel terminale, deve funzionare qui."""
-    # Cerchiamo camsnap nel PATH ereditato
-    camsnap_bin = shutil.which("camsnap")
+def run_executable_stream(args: list[str]) -> str:
+    camsnap_bin = shutil.which("camsnap") or "camsnap"
     
-    # Se non lo trova, proviamo a chiedere a 'which' (fallback estremo)
-    if not camsnap_bin:
-        try:
-            camsnap_bin = subprocess.check_output(["which", "camsnap"], text=True).strip()
-        except:
-            camsnap_bin = "camsnap"
+    # Prepariamo l'esecuzione catturando stdout e stderr separatamente
+    # e forzando l'assenza di buffering (PYTHONUNBUFFERED)
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
 
     try:
-        # Usiamo la forma più semplice di esecuzione possibile
-        result = subprocess.run(
+        # Usiamo Popen per leggere in tempo reale ed evitare il deadlock dei buffer
+        process = subprocess.Popen(
             [camsnap_bin] + args,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=30
+            env=env
         )
         
-        if result.returncode == 0:
-            return result.stdout.strip() or "OK (Nessun output)"
+        # Leggiamo tutto l'output disponibile
+        stdout, stderr = process.communicate(timeout=30)
+        
+        # Pulizia dell'output: camsnap potrebbe usare caratteri speciali per le tabelle
+        clean_stdout = stdout.strip()
+        
+        if process.returncode == 0:
+            if not clean_stdout and stderr:
+                # A volte i log utili finiscono in stderr anche se il codice è 0
+                return f"Output (da stderr): {stderr.strip()}"
+            return clean_stdout or "Comando eseguito, ma output vuoto."
         else:
-            return f"Errore {result.returncode}: {result.stderr}"
+            return f"Errore {process.returncode}\nLOG: {stderr}\nOUT: {stdout}"
+            
+    except subprocess.TimeoutExpired:
+        process.kill()
+        return "Errore: Timeout (il processo non rispondeva)."
     except Exception as e:
         return f"Errore critico: {str(e)}"
 
 @mcp.tool()
 def list_cameras() -> str:
-    """Lista delle telecamere."""
-    return run_simple(["list"])
+    """Elenca le telecamere configurate."""
+    # Proviamo a forzare un output semplice se camsnap lo supporta, 
+    # altrimenti usiamo il metodo stream-safe
+    return run_executable_stream(["list"])
 
 @mcp.tool()
 def capture_snap(camera_name: str) -> str:
-    """Cattura un frame in /tmp."""
+    """Cattura un frame."""
+    import datetime
     now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     target_path = f"/tmp/cam_{camera_name}_{now}.jpg"
     
-    res = run_simple(["snap", camera_name, "--out", target_path])
+    # Eseguiamo il comando snap
+    res = run_executable_stream(["snap", camera_name, "--out", target_path])
     
     if os.path.exists(target_path):
-        return f"Snapshot OK: {target_path}"
-    return f"Fallito: {res}"
-
-if __name__ == "__main__":
-    mcp.run()
+        return f"Snapshot creato con successo in: {target_path}"
+    return f"Fallito. Log: {res}"
