@@ -16,11 +16,13 @@ mcp = FastMCP("Camsnap Manager")
 def run_executable_stream(args: list[str], is_snap: bool = False) -> str:
     camsnap_bin = shutil.which("camsnap") or "camsnap"
     
-    # Ambiente come il tuo originale
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     env["DISPLAY"] = "" 
     env["XDG_RUNTIME_DIR"] = "/tmp"
+    
+    # OPZIONI FFMPEG per connessioni RTSP più veloci/stabili
+    env["FFREPORT"] = "file=/tmp/ffmpeg_report.log:level=32"
 
     try:
         process = subprocess.Popen(
@@ -32,10 +34,12 @@ def run_executable_stream(args: list[str], is_snap: bool = False) -> str:
         )
         
         try:
-            stdout, stderr = process.communicate(timeout=45)
+            # TIMEOUT AUMENTATO: 60s invece di 45s per RTSP lenti
+            stdout, stderr = process.communicate(timeout=60)
         except subprocess.TimeoutExpired:
             process.kill()
-            return "Errore: Timeout (45s) durante la comunicazione con la camera."
+            process.wait()
+            return "Errore: Timeout (60s) - la camera non risponde abbastanza velocemente"
         
         clean_stdout = stdout.strip()
         clean_stderr = stderr.strip()
@@ -43,18 +47,7 @@ def run_executable_stream(args: list[str], is_snap: bool = False) -> str:
         if process.returncode == 0:
             return clean_stdout or "Operazione completata."
         else:
-            # LOGGING DETTAGLIATO per capire il problema
-            error_msg = f"=== ERRORE CAMSNAP ===\n"
-            error_msg += f"Return Code: {process.returncode}\n"
-            error_msg += f"Comando eseguito: {camsnap_bin} {' '.join(args)}\n\n"
-            
-            if clean_stderr:
-                error_msg += f"=== STDERR ===\n{clean_stderr}\n\n"
-            
-            if clean_stdout:
-                error_msg += f"=== STDOUT ===\n{clean_stdout}\n"
-            
-            return error_msg
+            return f"Errore {process.returncode}\nSTDERR:\n{clean_stderr}\n\nSTDOUT:\n{clean_stdout}"
             
     except Exception as e:
         return f"Errore critico: {str(e)}"
@@ -65,68 +58,58 @@ def list_cameras() -> str:
     return run_executable_stream(["list"], is_snap=False)
 
 @mcp.tool()
-def capture_snap(camera_name: str) -> str:
-    """Cattura un frame (Headless Mode)."""
+def capture_snap(camera_name: str, timeout_override: int = 30) -> str:
+    """
+    Cattura un frame (Headless Mode).
+    
+    Args:
+        camera_name: Nome della camera
+        timeout_override: Timeout in secondi per lo snap (default 30)
+    """
     now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     target_path = f"/tmp/cam_{camera_name}_{now}.jpg"
     
-    # Esegui lo snap
-    res = run_executable_stream(["snap", camera_name, "--out", target_path], is_snap=True)
+    # Aggiungi opzioni di timeout per camsnap/ffmpeg
+    args = ["snap", camera_name, "--out", target_path, "--timeout", str(timeout_override)]
     
-    # Aspetta un attimo per l'I/O
-    time.sleep(0.3)
+    res = run_executable_stream(args, is_snap=True)
     
-    # Controllo fisico sul file
-    if os.path.exists(target_path):
+    # Aspetta che il file sia scritto completamente
+    time.sleep(0.5)
+    
+    if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
         file_size = os.path.getsize(target_path)
-        if file_size > 0:
-            return f"✓ Snapshot creato: {target_path} ({file_size} bytes)\n\nLog comando:\n{res}"
-        else:
-            return f"✗ File creato ma vuoto (0 bytes)\n\nLog comando:\n{res}"
-    else:
-        return f"✗ File non creato\n\nLog comando:\n{res}"
+        return f"Snapshot creato con successo: {target_path} (dimensione: {file_size} bytes)"
+    
+    return f"Cattura fallita. Dettagli tecnici:\n{res}"
 
 @mcp.tool()
-def test_snap_terminal_vs_mcp(camera_name: str) -> str:
-    """Confronta lo snap da terminale vs MCP per debug."""
-    now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+def capture_snap_fast(camera_name: str) -> str:
+    """
+    Cattura veloce con opzioni RTSP ottimizzate per camere lente.
+    Usa questo se capture_snap normale fallisce con 'signal: killed'.
+    """
+    now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    target_path = f"/tmp/cam_{camera_name}_{now}.jpg"
     
-    # Test 1: Esattamente come da terminale
-    test1_path = f"/tmp/test_terminal_{now}.jpg"
+    # Opzioni aggressive per RTSP
+    args = [
+        "snap", camera_name, 
+        "--out", target_path,
+        "--timeout", "45",
+        "--rtsp-transport", "tcp",  # TCP invece di UDP (più affidabile)
+        "--no-audio"  # Ignora audio per velocizzare
+    ]
     
-    result = f"=== TEST SNAP TERMINAL vs MCP ===\n\n"
-    result += f"Camera: {camera_name}\n"
-    result += f"File output: {test1_path}\n\n"
+    res = run_executable_stream(args, is_snap=True)
     
-    # Esegui il comando ESATTAMENTE come faresti da terminale
-    camsnap_bin = shutil.which("camsnap")
-    result += f"Binario: {camsnap_bin}\n\n"
+    time.sleep(0.5)
     
-    # NON usare env modificato, usa l'ambiente naturale
-    try:
-        process = subprocess.run(
-            [camsnap_bin, "snap", camera_name, "--out", test1_path],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            # USA L'AMBIENTE ORIGINALE senza modifiche
-            env=None  
-        )
-        
-        result += f"Return code: {process.returncode}\n"
-        result += f"STDOUT:\n{process.stdout}\n"
-        result += f"STDERR:\n{process.stderr}\n\n"
-        
-        if os.path.exists(test1_path):
-            size = os.path.getsize(test1_path)
-            result += f"✓ File creato: {size} bytes\n"
-        else:
-            result += f"✗ File NON creato\n"
-            
-    except Exception as e:
-        result += f"Eccezione: {str(e)}\n"
+    if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
+        file_size = os.path.getsize(target_path)
+        return f"✓ Snapshot creato: {target_path} ({file_size} bytes)"
     
-    return result
+    return f"✗ Cattura fallita:\n{res}"
 
 if __name__ == "__main__":
     mcp.run()
