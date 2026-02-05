@@ -6,9 +6,10 @@ dependencies = [
 ]
 
 [project.scripts]
-# Questo dice: lancia il comando 'mcp-camsnap' eseguendo la funzione 'main' 
-# dentro il file 'mcp_camsnap.py'
+# Qui diciamo: l'eseguibile 'mcp-camsnap' deve cercare 
+# nel file 'mcp_camsnap.py' la funzione 'main'
 mcp-camsnap = "mcp_camsnap:main"
 
 [tool.setuptools]
+# Fondamentale: dice a setuptools che il file mcp_camsnap.py è il modulo da includere
 py-modules = ["mcp_camsnap"]
