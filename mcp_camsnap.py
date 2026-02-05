@@ -1,17 +1,17 @@
 # /// script
 # dependencies = ["mcp"]
 # ///
-import subprocess
+import asyncio
 import os
 import shutil
 import datetime
-import asyncio
+import subprocess
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("Camsnap Manager")
 
 def run_executable_stream(args: list[str]) -> str:
-    """La tua funzione originale che garantisce il funzionamento della lista."""
+    """La tua funzione originale - NON TOCCATA - garantisce la lista."""
     camsnap_bin = shutil.which("camsnap") or "camsnap"
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
@@ -39,59 +39,41 @@ def run_executable_stream(args: list[str]) -> str:
 
 @mcp.tool()
 def list_cameras() -> str:
-    """Elenca le telecamere (Usa la tua logica originale)."""
+    """Elenca le telecamere configurate (Usa la tua logica originale)."""
     return run_executable_stream(["list"])
 
 @mcp.tool()
 async def capture_snap(camera_name: str) -> str:
     """
-    Cattura uno snapshot usando il NOME della camera.
-    Recupera l'URL corretto automaticamente per evitare il 404.
+    Cattura un frame delegando a camsnap, ma in modo ASINCRONO (Stile ffmpeg-mcp).
+    Questo previene il 'signal: killed' causato dai buffer di FFmpeg.
     """
-    # 1. Recuperiamo l'URL chiamando 'camsnap list' tramite la tua funzione sicura
-    # Cerchiamo di capire qual è l'URL per quella camera specifica
-    lista = run_executable_stream(["list"])
-    
-    # Cerchiamo la riga della camera (logica semplice di parsing)
-    target_url = ""
-    for line in lista.splitlines():
-        if camera_name in line and "rtsp://" in line:
-            # Estraiamo l'URL dalla riga (solitamente è l'ultima parte)
-            parts = line.split()
-            for part in parts:
-                if part.startswith("rtsp://"):
-                    target_url = part
-                    break
-    
-    if not target_url:
-        return f"Errore: non ho trovato l'URL RTSP per la camera '{camera_name}' nella lista."
-
-    # 2. Ora chiamiamo FFmpeg con l'URL COMPLETO (incluso path e auth se presenti nella lista)
-    ffmpeg_bin = shutil.which("ffmpeg") or "ffmpeg"
+    camsnap_bin = shutil.which("camsnap") or "camsnap"
     now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    target_path = f"/tmp/cam_{camera_name}_{now}.jpg"
-
-    cmd = [
-        "-y", "-rtsp_transport", "tcp",
-        "-i", target_url,
-        "-frames:v", "1", "-q:v", "2",
-        target_path
-    ]
+    target_path = f"/tmp/snap_{camera_name}_{now}.jpg"
 
     try:
+        # Usiamo asyncio.create_subprocess_exec per gestire lo snap in background.
+        # Riduciamo il carico del protocollo MCP ignorando i log prolissi di FFmpeg/camsnap.
         process = await asyncio.create_subprocess_exec(
-            ffmpeg_bin, *cmd,
+            camsnap_bin, "snap", camera_name, "--out", target_path,
             stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.DEVNULL
         )
-        _, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
+        
+        # Attendiamo il processo senza bloccare il server MCP (timeout 45s)
+        await asyncio.wait_for(process.wait(), timeout=45)
 
-        if process.returncode == 0 and os.path.exists(target_path):
-            return f"Snapshot OK: {target_path}"
+        if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
+            return f"Snapshot creato con successo: {target_path}"
         else:
-            return f"Errore FFmpeg (URL usato: {target_url}): {stderr.decode()}"
+            return f"Errore: Camsnap ha terminato ma il file {target_path} è mancante o vuoto."
+            
+    except asyncio.TimeoutExpired:
+        if process: process.terminate()
+        return f"Errore: Timeout durante lo snap di '{camera_name}'."
     except Exception as e:
-        return f"Errore critico: {str(e)}"
+        return f"Errore critico asincrono: {str(e)}"
 
 def main():
     mcp.run()
