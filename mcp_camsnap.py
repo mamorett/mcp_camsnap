@@ -76,34 +76,39 @@ async def capture_snap(camera_name: str) -> str:
         return f"Errore critico asincrono: {str(e)}"
 
 @mcp.tool()
-async def capture_for_vision(camera_name: str) -> str:
+async def capture_for_vision(camera_name: str) -> dict:
     """
-    Scatta uno snapshot e lo rende disponibile per l'analisi Vision immediata.
-    Restituisce il PATH locale che l'AI può leggere direttamente.
+    Scatta uno snapshot e restituisce un oggetto strutturato con il percorso del file.
+    Restituisce un dizionario per evitare errori di parsing nell'AI.
     """
     camsnap_bin = shutil.which("camsnap") or "camsnap"
-    # Usiamo un path fisso o prevedibile per facilitare l'AI
-    now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    # Usiamo un nome file pulito e senza sottocartelle variabili
     target_path = f"/tmp/vision_snap_{camera_name}.jpg"
 
     try:
-        # Scatto dello snapshot
+        # Esecuzione dello snap
         process = await asyncio.create_subprocess_exec(
             camsnap_bin, "snap", camera_name, "--out", target_path,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL
         )
+        
+        # Timeout di 45 secondi
         await asyncio.wait_for(process.wait(), timeout=45)
 
         if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
-            # IMPORTANTE: Restituiamo un'istruzione chiara all'AI
-            # Non passiamo i dati, ma il comando per "vedere" il file
-            return f"SNAPSHOT_READY: L'immagine della camera '{camera_name}' è stata salvata in '{target_path}'. Usa i tuoi strumenti di lettura file per analizzarla."
+            # RESTITUIAMO UN DIZIONARIO: l'AI lo riceve come JSON pulito
+            return {
+                "status": "success",
+                "camera": camera_name,
+                "absolute_path": os.path.abspath(target_path),
+                "instructions": "Il file è pronto. Usa il tool 'read' o 'upload' direttamente su questo absolute_path."
+            }
         else:
-            return f"Errore: Snapshot fallito, file non generato."
+            return {"status": "error", "message": "File non generato o vuoto."}
 
     except Exception as e:
-        return f"Errore critico: {str(e)}"
+        return {"status": "error", "message": str(e)}
 
 # Espone la cartella /tmp come risorsa leggibile (opzionale, ma aiuta certi client)
 @mcp.resource("file:///tmp/vision_snap_{camera_name}.jpg")
