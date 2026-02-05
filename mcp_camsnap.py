@@ -7,69 +7,81 @@
 import subprocess
 import os
 import datetime
-from typing import Optional
+import shutil
 from mcp.server.fastmcp import FastMCP
 
-# Inizializza il server MCP
 mcp = FastMCP("Camsnap Manager")
 
-def get_timestamped_path(camera_name: str, extension: str) -> str:
-    """Genera un percorso univoco in /tmp: /tmp/cam_cucina_20231027_153045.jpg"""
-    now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"cam_{camera_name}_{now}.{extension}"
-    return os.path.join("/tmp", filename)
+def get_enhanced_env():
+    """Ricostruisce un ambiente che include i percorsi comuni di Linuxbrew e local bin."""
+    env = os.environ.copy()
+    
+    # Percorsi probabili per Linuxbrew e installazioni locali
+    extra_paths = [
+        os.path.expanduser("~/.local/bin"),
+        "/home/linuxbrew/.linuxbrew/bin",
+        "/opt/homebrew/bin",
+    ]
+    
+    current_path = env.get("PATH", "")
+    # Uniamo i percorsi extra a quello attuale, filtrando quelli che non esistono
+    valid_extras = [p for p in extra_paths if os.path.isdir(p)]
+    env["PATH"] = ":".join(valid_extras + [current_path])
+    
+    return env
 
-def run_camsnap(args: list[str]) -> str:
-    """Esegue il comando camsnap e cattura l'output."""
+def run_executable(args: list[str]) -> str:
+    env = get_enhanced_env()
+    
+    # Cerchiamo il binario nel PATH aggiornato
+    camsnap_bin = shutil.which("camsnap", path=env["PATH"])
+    
+    if not camsnap_bin:
+        return "Errore: comando 'camsnap' non trovato. Assicurati che sia installato e nel PATH."
+
     try:
-        # Assicuriamoci che l'ambiente abbia il PATH corretto se necessario
-        result = subprocess.run(
-            ["camsnap"] + args,
-            capture_output=True,
+        process = subprocess.Popen(
+            [camsnap_bin] + args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            check=True
+            env=env
         )
-        return result.stdout.strip()
-    except subprocess.CalledProcessError as e:
-        return f"Errore camsnap: {e.stderr}"
-    except FileNotFoundError:
-        return "Errore: comando 'camsnap' non trovato nel sistema."
+        
+        stdout, stderr = process.communicate(timeout=30)
+        
+        if process.returncode == 0:
+            return stdout.strip() or "Operazione completata."
+        else:
+            # Uniamo stdout e stderr per dare all'AI più contesto sul fallimento
+            return f"Errore (Codice {process.returncode}):\n{stderr}\n{stdout}"
+            
+    except subprocess.TimeoutExpired:
+        process.kill()
+        return "Errore: Il processo ha superato il timeout di 30 secondi."
+    except Exception as e:
+        return f"Errore critico: {str(e)}"
 
 @mcp.tool()
 def list_cameras() -> str:
-    """Elenca tutte le telecamere configurate."""
-    return run_camsnap(["list"])
+    """Elenca le telecamere configurate in camsnap."""
+    return run_executable(["list"])
 
 @mcp.tool()
 def capture_snap(camera_name: str) -> str:
-    """
-    Cattura un frame da una telecamera. 
-    Il file viene salvato automaticamente in /tmp con timestamp.
-    """
-    target_path = get_timestamped_path(camera_name, "jpg")
-    output = run_camsnap(["snap", camera_name, "--out", target_path])
+    """Cattura un frame e lo salva in /tmp con timestamp."""
+    now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    target_path = f"/tmp/cam_{camera_name}_{now}.jpg"
+    result = run_executable(["snap", camera_name, "--out", target_path])
     
-    if "Errore" in output:
-        return output
-    return f"Snapshot catturato con successo.\nPercorso: {target_path}"
-
-@mcp.tool()
-def record_clip(camera_name: str, duration: str = "5s") -> str:
-    """
-    Registra un clip video (senza audio).
-    Esempio durata: '5s', '10s'. Salvato in /tmp con timestamp.
-    """
-    target_path = get_timestamped_path(camera_name, "mp4")
-    output = run_camsnap(["clip", camera_name, "--dur", duration, "--no-audio", "--out", target_path])
-    
-    if "Errore" in output:
-        return output
-    return f"Clip registrata ({duration}).\nPercorso: {target_path}"
+    if "Errore" in result:
+        return result
+    return f"Snapshot salvato con successo: {target_path}"
 
 @mcp.tool()
 def check_status() -> str:
-    """Verifica lo stato di ffmpeg e delle telecamere."""
-    return run_camsnap(["doctor", "--probe"])
+    """Esegue la diagnostica di camsnap (FFmpeg, connettività, config)."""
+    return run_executable(["doctor", "--probe"])
 
 if __name__ == "__main__":
     mcp.run()
