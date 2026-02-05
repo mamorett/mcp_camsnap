@@ -1,94 +1,65 @@
-# /// script
-# dependencies = [
-#   "mcp",
-# ]
-# ///
-
 import subprocess
 import os
-import datetime
 import shutil
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("Camsnap Manager")
 
-def get_dynamic_env():
-    """Ricostruisce l'ambiente basandosi sulla posizione reale di brew."""
+def run_executable_stream(args: list[str]) -> str:
+    camsnap_bin = shutil.which("camsnap") or "camsnap"
+    
+    # Prepariamo l'esecuzione catturando stdout e stderr separatamente
+    # e forzando l'assenza di buffering (PYTHONUNBUFFERED)
     env = os.environ.copy()
-    
-    # 1. Trova dove risiede brew (l'unico punto di partenza)
-    brew_bin = shutil.which("brew")
-    
-    # 2. Se brew è nel PATH, estraiamo le sue variabili (PATH, LD_LIBRARY_PATH, etc.)
-    # Se non è nel PATH, proviamo a cercarlo nei path standard di Linux/macOS
-    if not brew_bin:
-        for path in ["/home/linuxbrew/.linuxbrew/bin/brew", "/opt/homebrew/bin/brew", "/usr/local/bin/brew"]:
-            if os.path.exists(path):
-                brew_bin = path
-                break
-
-    if brew_bin:
-        try:
-            # Eseguiamo 'brew shellenv' per ottenere le variabili necessarie
-            output = subprocess.check_output([brew_bin, "shellenv"], text=True)
-            for line in output.splitlines():
-                if line.startswith("export "):
-                    # Trasformiamo 'export NAME="value"' in NAME: value
-                    parts = line.replace("export ", "").split("=", 1)
-                    if len(parts) == 2:
-                        name = parts[0]
-                        value = parts[1].strip('"').strip(';')
-                        # Aggiorniamo il PATH invece di sovrascriverlo
-                        if name == "PATH":
-                            env["PATH"] = f"{value}:{env.get('PATH', '')}"
-                        else:
-                            env[name] = value
-        except Exception:
-            pass # Se brew shellenv fallisce, proseguiamo col PATH ereditato
-
-    return env
-
-def run_executable(args: list[str]) -> str:
-    env = get_dynamic_env()
-    
-    # Cerchiamo camsnap nel PATH arricchito
-    camsnap_bin = shutil.which("camsnap", path=env.get("PATH"))
-    
-    if not camsnap_bin:
-        return "Errore: 'camsnap' non trovato. Verifica che sia nel PATH o installato via Brew."
+    env["PYTHONUNBUFFERED"] = "1"
 
     try:
-        # Eseguiamo il comando ereditando l'ambiente dinamico
-        result = subprocess.run(
+        # Usiamo Popen per leggere in tempo reale ed evitare il deadlock dei buffer
+        process = subprocess.Popen(
             [camsnap_bin] + args,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            env=env,
-            timeout=40
+            env=env
         )
         
-        if result.returncode == 0:
-            return result.stdout.strip() or "Comando completato (nessun output)."
+        # Leggiamo tutto l'output disponibile
+        stdout, stderr = process.communicate(timeout=30)
+        
+        # Pulizia dell'output: camsnap potrebbe usare caratteri speciali per le tabelle
+        clean_stdout = stdout.strip()
+        
+        if process.returncode == 0:
+            if not clean_stdout and stderr:
+                # A volte i log utili finiscono in stderr anche se il codice è 0
+                return f"Output (da stderr): {stderr.strip()}"
+            return clean_stdout or "Comando eseguito, ma output vuoto."
         else:
-            return f"Errore {result.returncode}:\n{result.stderr}\n{result.stdout}"
+            return f"Errore {process.returncode}\nLOG: {stderr}\nOUT: {stdout}"
             
     except subprocess.TimeoutExpired:
-        return "Errore: Timeout (40s)."
+        process.kill()
+        return "Errore: Timeout (il processo non rispondeva)."
     except Exception as e:
         return f"Errore critico: {str(e)}"
 
 @mcp.tool()
 def list_cameras() -> str:
     """Elenca le telecamere configurate."""
-    return run_executable(["list"])
+    # Proviamo a forzare un output semplice se camsnap lo supporta, 
+    # altrimenti usiamo il metodo stream-safe
+    return run_executable_stream(["list"])
 
 @mcp.tool()
 def capture_snap(camera_name: str) -> str:
-    """Cattura un frame con timestamp in /tmp."""
+    """Cattura un frame."""
+    import datetime
     now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     target_path = f"/tmp/cam_{camera_name}_{now}.jpg"
-    res = run_executable(["snap", camera_name, "--out", target_path])
-    return f"Risultato: {res}" if "Errore" in res else f"Snapshot: {target_path}"
-
-if __name__ == "__main__":
-    mcp.run()
+    
+    # Eseguiamo il comando snap
+    res = run_executable_stream(["snap", camera_name, "--out", target_path])
+    
+    if os.path.exists(target_path):
+        return f"Snapshot creato con successo in: {target_path}"
+    return f"Fallito. Log: {res}"
