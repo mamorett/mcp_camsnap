@@ -52,14 +52,35 @@ def list_cameras() -> str:
 
 @mcp.tool()
 def capture_snap(camera_name: str) -> str:
-    """Cattura un frame."""
+    """Cattura un frame riducendo al minimo l'overhead di sistema."""
     import datetime
     now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     target_path = f"/tmp/cam_{camera_name}_{now}.jpg"
     
-    # Eseguiamo il comando snap
-    res = run_executable_stream(["snap", camera_name, "--out", target_path])
+    # Usiamo un timeout leggermente più lungo per FFmpeg
+    # ma chiediamo a camsnap di essere conciso.
+    # Se camsnap permette di passare flag a ffmpeg, sarebbe ideale.
+    # Altrimenti, aumentiamo la tolleranza del nostro wrapper.
     
-    if os.path.exists(target_path):
-        return f"Snapshot creato con successo in: {target_path}"
-    return f"Fallito. Log: {res}"
+    # PROVA: esecuzione con cattura differenziata per evitare deadlock
+    try:
+        # Usiamo un approccio che scarta stderr se non necessario 
+        # per evitare saturazione dei buffer durante il video decoding
+        process = subprocess.run(
+            [shutil.which("camsnap") or "camsnap", "snap", camera_name, "--out", target_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=60, # Un minuto intero per negoziare lo stream
+            env=get_dynamic_env() # Usa la funzione che abbiamo creato prima
+        )
+        
+        if os.path.exists(target_path):
+            return f"Snapshot OK: {target_path}"
+        
+        return f"Errore (Code {process.returncode}):\n{process.stderr}"
+        
+    except subprocess.TimeoutExpired:
+        return "Errore: FFmpeg è stato troppo lento (Timeout 60s)."
+    except Exception as e:
+        return f"Errore critico: {str(e)}"
