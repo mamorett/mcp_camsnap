@@ -6,5 +6,5 @@ dependencies = [
 ]
 
 [project.scripts]
-# Qui puntiamo alla funzione 'main' che abbiamo definito nel codice
+# Nome eseguibile = "nome_file_python_senza_estensione:nome_funzione"
 mcp-camsnap = "mcp_camsnap:main"
