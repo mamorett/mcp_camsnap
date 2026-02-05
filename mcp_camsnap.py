@@ -16,15 +16,17 @@ mcp = FastMCP("Camsnap Manager")
 def run_executable_stream(args: list[str], is_snap: bool = False) -> str:
     camsnap_bin = shutil.which("camsnap") or "camsnap"
     
+    # Prepariamo un ambiente "headless" totale per FFmpeg
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    # Impediamo a FFmpeg di cercare interfacce grafiche o accelerazioni hardware 
+    # che potrebbero essere bloccate dal sandbox dell'editor
     env["DISPLAY"] = "" 
     env["XDG_RUNTIME_DIR"] = "/tmp"
-    
-    # OPZIONI FFMPEG per connessioni RTSP più veloci/stabili
-    env["FFREPORT"] = "file=/tmp/ffmpeg_report.log:level=32"
 
     try:
+        # Per lo snap, isoliamo stderr ma non mandiamolo a DEVNULL, 
+        # leggiamolo per capire PERCHÉ dà Errore 1.
         process = subprocess.Popen(
             [camsnap_bin] + args,
             stdout=subprocess.PIPE,
@@ -34,12 +36,10 @@ def run_executable_stream(args: list[str], is_snap: bool = False) -> str:
         )
         
         try:
-            # TIMEOUT AUMENTATO: 60s invece di 45s per RTSP lenti
-            stdout, stderr = process.communicate(timeout=60)
+            stdout, stderr = process.communicate(timeout=45)
         except subprocess.TimeoutExpired:
             process.kill()
-            process.wait()
-            return "Errore: Timeout (60s) - la camera non risponde abbastanza velocemente"
+            return "Errore: Timeout (45s) durante la comunicazione con la camera."
         
         clean_stdout = stdout.strip()
         clean_stderr = stderr.strip()
@@ -47,7 +47,8 @@ def run_executable_stream(args: list[str], is_snap: bool = False) -> str:
         if process.returncode == 0:
             return clean_stdout or "Operazione completata."
         else:
-            return f"Errore {process.returncode}\nSTDERR:\n{clean_stderr}\n\nSTDOUT:\n{clean_stdout}"
+            # Qui catturiamo il vero motivo dell'Errore 1
+            return f"Errore {process.returncode}\nLOG: {clean_stderr}\nOUT: {clean_stdout}"
             
     except Exception as e:
         return f"Errore critico: {str(e)}"
@@ -58,58 +59,19 @@ def list_cameras() -> str:
     return run_executable_stream(["list"], is_snap=False)
 
 @mcp.tool()
-def capture_snap(camera_name: str, timeout_override: int = 30) -> str:
-    """
-    Cattura un frame (Headless Mode).
-    
-    Args:
-        camera_name: Nome della camera
-        timeout_override: Timeout in secondi per lo snap (default 30)
-    """
+def capture_snap(camera_name: str) -> str:
+    """Cattura un frame (Headless Mode)."""
+    # Timestamp univoco per evitare sovrascritture (Assioma rispettato)
     now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     target_path = f"/tmp/cam_{camera_name}_{now}.jpg"
     
-    # Aggiungi opzioni di timeout per camsnap/ffmpeg
-    args = ["snap", camera_name, "--out", target_path, "--timeout", str(timeout_override)]
+    res = run_executable_stream(["snap", camera_name, "--out", target_path], is_snap=True)
     
-    res = run_executable_stream(args, is_snap=True)
-    
-    # Aspetta che il file sia scritto completamente
-    time.sleep(0.5)
-    
+    # Controllo fisico sul file
     if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
-        file_size = os.path.getsize(target_path)
-        return f"Snapshot creato con successo: {target_path} (dimensione: {file_size} bytes)"
+        return f"Snapshot creato con successo: {target_path}"
     
     return f"Cattura fallita. Dettagli tecnici:\n{res}"
-
-@mcp.tool()
-def capture_snap_fast(camera_name: str) -> str:
-    """
-    Cattura veloce con opzioni RTSP ottimizzate per camere lente.
-    Usa questo se capture_snap normale fallisce con 'signal: killed'.
-    """
-    now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    target_path = f"/tmp/cam_{camera_name}_{now}.jpg"
-    
-    # Opzioni aggressive per RTSP
-    args = [
-        "snap", camera_name, 
-        "--out", target_path,
-        "--timeout", "45",
-        "--rtsp-transport", "tcp",  # TCP invece di UDP (più affidabile)
-        "--no-audio"  # Ignora audio per velocizzare
-    ]
-    
-    res = run_executable_stream(args, is_snap=True)
-    
-    time.sleep(0.5)
-    
-    if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
-        file_size = os.path.getsize(target_path)
-        return f"✓ Snapshot creato: {target_path} ({file_size} bytes)"
-    
-    return f"✗ Cattura fallita:\n{res}"
 
 if __name__ == "__main__":
     mcp.run()
