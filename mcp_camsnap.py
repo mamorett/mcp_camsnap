@@ -13,32 +13,34 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("Camsnap Manager")
 
 def run_executable(args: list[str]) -> str:
-    # Invece di ricostruire il PATH, usiamo quello che OpenCode eredita, 
-    # ma cerchiamo il binario in modo dinamico.
     camsnap_bin = shutil.which("camsnap") or "camsnap"
+    
+    # Specifica il percorso assoluto della tua config
+    # Sostituisci con il percorso reale che vedi facendo 'ls ~/.config/camsnap/config.yaml'
+    config_path = os.path.expanduser("~/.config/camsnap/config.yaml")
+    
+    # Inseriamo il flag --config come primo argomento
+    full_args = ["--config", config_path] + args
 
     try:
-        # Usiamo subprocess.run che è più atomico e gestisce meglio i buffer
-        # Reindirizziamo stderr su stdout per vedere tutto in un unico flusso
         result = subprocess.run(
-            [camsnap_bin] + args,
+            [camsnap_bin] + full_args,
             capture_output=True,
             text=True,
-            timeout=45 # FFmpeg può essere lento a negoziare l'RTSP
+            timeout=45,
+            # Passiamo l'ambiente attuale per mantenere le variabili di sistema
+            env=os.environ.copy() 
         )
         
+        # Se l'output è vuoto ma il comando è riuscito, segnaliamolo
+        output = result.stdout.strip()
         if result.returncode == 0:
-            return result.stdout.strip() or "Successo."
+            return output if output else "Comando eseguito, ma l'output è vuoto. Verifica il file config."
         else:
-            return f"Errore (Code {result.returncode}):\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+            return f"Errore (Code {result.returncode}):\n{result.stderr}"
             
-    except subprocess.TimeoutExpired as e:
-        # Se va in timeout, restituiamo quello che ha catturato finora
-        stdout = e.stdout.decode() if e.stdout else ""
-        stderr = e.stderr.decode() if e.stderr else ""
-        return f"Errore: Timeout scaduto.\nParziale STDOUT: {stdout}\nParziale STDERR: {stderr}"
     except Exception as e:
-        return f"Errore imprevisto: {str(e)}"
+        return f"Errore critico: {str(e)}"
 
 @mcp.tool()
 def list_cameras() -> str:
