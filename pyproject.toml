@@ -6,4 +6,4 @@ dependencies = [
 ]
 
 [project.scripts]
-mcp-camsnap = "mcp_camsnap:main"
+mcp-camsnap = "mcp_camsnap:run"
