@@ -6,7 +6,8 @@ import os
 import shutil
 import datetime
 import subprocess
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Image
+
 
 mcp = FastMCP("Camsnap Manager")
 
@@ -76,39 +77,36 @@ async def capture_snap(camera_name: str) -> str:
         return f"Errore critico asincrono: {str(e)}"
 
 @mcp.tool()
-async def capture_for_vision(camera_name: str) -> dict:
+async def analyze_camera(camera_name: str):
     """
-    Scatta uno snapshot e restituisce un oggetto strutturato con il percorso del file.
-    Restituisce un dizionario per evitare errori di parsing nell'AI.
+    Scatta una foto e la invia all'AI come oggetto immagine.
+    Risolve il problema dei path errati e dei dati troncati.
     """
     camsnap_bin = shutil.which("camsnap") or "camsnap"
-    # Usiamo un nome file pulito e senza sottocartelle variabili
-    target_path = f"/tmp/vision_snap_{camera_name}.jpg"
+    target_path = f"/tmp/snap_for_ai_{camera_name}.jpg"
 
     try:
-        # Esecuzione dello snap
+        # Esecuzione snap
         process = await asyncio.create_subprocess_exec(
             camsnap_bin, "snap", camera_name, "--out", target_path,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL
         )
-        
-        # Timeout di 45 secondi
         await asyncio.wait_for(process.wait(), timeout=45)
 
         if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
-            # RESTITUIAMO UN DIZIONARIO: l'AI lo riceve come JSON pulito
-            return {
-                "status": "success",
-                "camera": camera_name,
-                "absolute_path": os.path.abspath(target_path),
-                "instructions": "Il file è pronto. Usa il tool 'read' o 'upload' direttamente su questo absolute_path."
-            }
+            # Lettura binaria del file
+            with open(target_path, "rb") as f:
+                image_bytes = f.read()
+            
+            # Restituiamo l'oggetto Image di FastMCP
+            # Questo viene gestito dal protocollo come dato binario puro
+            return Image(data=image_bytes, format="jpeg")
         else:
-            return {"status": "error", "message": "File non generato o vuoto."}
+            return "Errore: Snapshot fallito o file vuoto."
 
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return f"Errore durante l'analisi: {str(e)}"
 
 # Espone la cartella /tmp come risorsa leggibile (opzionale, ma aiuta certi client)
 @mcp.resource("file:///tmp/vision_snap_{camera_name}.jpg")
