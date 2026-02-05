@@ -6,5 +6,9 @@ dependencies = [
 ]
 
 [project.scripts]
-# Nome eseguibile = "nome_file_python_senza_estensione:nome_funzione"
+# Questo dice: lancia il comando 'mcp-camsnap' eseguendo la funzione 'main' 
+# dentro il file 'mcp_camsnap.py'
 mcp-camsnap = "mcp_camsnap:main"
+
+[tool.setuptools]
+py-modules = ["mcp_camsnap"]
