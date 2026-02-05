@@ -16,30 +16,26 @@ mcp = FastMCP("Camsnap Manager")
 def run_executable_stream(args: list[str], is_snap: bool = False) -> str:
     camsnap_bin = shutil.which("camsnap") or "camsnap"
     
-    # NON modificare l'ambiente - usa quello naturale
     try:
-        process = subprocess.Popen(
+        # Esegui completamente isolato con subprocess.run
+        result = subprocess.run(
             [camsnap_bin] + args,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
-            # NO env parameter - usa l'ambiente di default
+            text=True,
+            timeout=45
         )
         
-        try:
-            stdout, stderr = process.communicate(timeout=45)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            return "Errore: Timeout (45s) durante la comunicazione con la camera."
+        clean_stdout = result.stdout.strip()
+        clean_stderr = result.stderr.strip()
         
-        clean_stdout = stdout.strip()
-        clean_stderr = stderr.strip()
-        
-        if process.returncode == 0:
+        if result.returncode == 0:
             return clean_stdout or "Operazione completata."
         else:
-            return f"Errore {process.returncode}\nLOG: {clean_stderr}\nOUT: {clean_stdout}"
+            return f"Errore {result.returncode}\nLOG: {clean_stderr}\nOUT: {clean_stdout}"
             
+    except subprocess.TimeoutExpired:
+        return "Errore: Timeout (45s) durante la comunicazione con la camera."
     except Exception as e:
         return f"Errore critico: {str(e)}"
 
@@ -57,7 +53,8 @@ def capture_snap(camera_name: str) -> str:
     res = run_executable_stream(["snap", camera_name, "--out", target_path], is_snap=True)
     
     if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
-        return f"Snapshot creato con successo: {target_path}"
+        file_size = os.path.getsize(target_path)
+        return f"Snapshot creato con successo: {target_path} ({file_size} bytes)"
     
     return f"Cattura fallita. Dettagli tecnici:\n{res}"
 
