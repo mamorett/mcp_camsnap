@@ -6,7 +6,6 @@ import os
 import shutil
 import datetime
 import subprocess
-import base64
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("Camsnap Manager")
@@ -76,22 +75,19 @@ async def capture_snap(camera_name: str) -> str:
     except Exception as e:
         return f"Errore critico asincrono: {str(e)}"
 
-import base64
-
-# ... (tieni le tue funzioni run_executable_stream e list_cameras uguali)
-
 @mcp.tool()
-async def capture_and_get_data(camera_name: str) -> str:
+async def capture_for_vision(camera_name: str) -> str:
     """
-    Scatta uno snapshot e restituisce direttamente i dati immagine per l'analisi.
-    L'utente deve solo fornire il nome della camera.
+    Scatta uno snapshot e lo rende disponibile per l'analisi Vision immediata.
+    Restituisce il PATH locale che l'AI può leggere direttamente.
     """
     camsnap_bin = shutil.which("camsnap") or "camsnap"
+    # Usiamo un path fisso o prevedibile per facilitare l'AI
     now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    target_path = f"/tmp/snap_{camera_name}_{now}.jpg"
+    target_path = f"/tmp/vision_snap_{camera_name}.jpg"
 
     try:
-        # 1. Scatto della snapshot (usando la logica asincrona che funziona)
+        # Scatto dello snapshot
         process = await asyncio.create_subprocess_exec(
             camsnap_bin, "snap", camera_name, "--out", target_path,
             stdout=asyncio.subprocess.DEVNULL,
@@ -100,20 +96,20 @@ async def capture_and_get_data(camera_name: str) -> str:
         await asyncio.wait_for(process.wait(), timeout=45)
 
         if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
-            # 2. Lettura immediata del file appena creato
-            with open(target_path, "rb") as image_file:
-                encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
-            
-            # 3. Pulizia opzionale: rimuoviamo il file temporaneo se non serve più
-            # os.remove(target_path) 
-            
-            # Restituiamo il flag per l'AI e il contenuto
-            return f"SNAPSHOT_SUCCESS:{camera_name}|DATA:{encoded_string}"
+            # IMPORTANTE: Restituiamo un'istruzione chiara all'AI
+            # Non passiamo i dati, ma il comando per "vedere" il file
+            return f"SNAPSHOT_READY: L'immagine della camera '{camera_name}' è stata salvata in '{target_path}'. Usa i tuoi strumenti di lettura file per analizzarla."
         else:
-            return f"Errore: Snapshot fallito per {camera_name}, file non generato."
+            return f"Errore: Snapshot fallito, file non generato."
 
     except Exception as e:
-        return f"Errore critico durante capture_and_get_data: {str(e)}"
+        return f"Errore critico: {str(e)}"
+
+# Espone la cartella /tmp come risorsa leggibile (opzionale, ma aiuta certi client)
+@mcp.resource("file:///tmp/vision_snap_{camera_name}.jpg")
+def get_snap_resource(camera_name: str) -> bytes:
+    with open(f"/tmp/vision_snap_{camera_name}.jpg", "rb") as f:
+        return f.read()
 
 def main():
     mcp.run()
