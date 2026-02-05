@@ -1,65 +1,87 @@
 # /// script
 # dependencies = ["mcp"]
 # ///
-import asyncio
+import subprocess
 import os
 import shutil
 import datetime
-import sys
+import asyncio
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("Camsnap Manager")
 
-@mcp.tool()
-async def list_cameras() -> str:
-    """Elenca le telecamere forzando il caricamento dell'ambiente utente."""
-    bin_path = shutil.which("camsnap") or "camsnap"
-    
-    # Prendiamo l'ambiente attuale e assicuriamoci che HOME sia corretta
-    # camsnap cerca la config in $HOME/.config/camsnap/ o percorsi simili
+def run_executable_stream(args: list[str]) -> str:
+    """La tua funzione originale che garantisce il funzionamento della lista."""
+    camsnap_bin = shutil.which("camsnap") or "camsnap"
     env = os.environ.copy()
-    
-    process = await asyncio.create_subprocess_exec(
-        bin_path, "list",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=env
-    )
-    stdout, stderr = await process.communicate()
-    
-    out_text = stdout.decode().strip()
-    err_text = stderr.decode().strip()
-    
-    if process.returncode == 0:
-        if not out_text:
-            return f"Camsnap eseguito, ma lista vuota. Path: {bin_path}\nEnv HOME: {env.get('HOME')}"
-        return out_text
-    
-    return f"Errore {process.returncode}: {err_text}"
+    env["PYTHONUNBUFFERED"] = "1"
+    try:
+        process = subprocess.Popen(
+            [camsnap_bin] + args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env
+        )
+        stdout, stderr = process.communicate(timeout=30)
+        clean_stdout = stdout.strip()
+        if process.returncode == 0:
+            if not clean_stdout and stderr:
+                return f"Output (da stderr): {stderr.strip()}"
+            return clean_stdout or "Comando eseguito, ma output vuoto."
+        else:
+            return f"Errore {process.returncode}\nLOG: {stderr}\nOUT: {stdout}"
+    except subprocess.TimeoutExpired:
+        process.kill()
+        return "Errore: Timeout."
+    except Exception as e:
+        return f"Errore critico: {str(e)}"
 
 @mcp.tool()
-async def capture_snap(camera_name: str) -> str:
-    """Cattura uno snapshot (Headless Async)."""
-    bin_path = shutil.which("camsnap") or "camsnap"
+def list_cameras() -> str:
+    """Elenca le telecamere (Usa la tua logica originale)."""
+    return run_executable_stream(["list"])
+
+@mcp.tool()
+async def capture_snap(camera_rtsp_url: str, camera_name: str) -> str:
+    """
+    Cattura un frame usando FFmpeg DIRETTO e ASINCRONO (Ispirato a ffmpeg-mcp).
+    Evita il deadlock dei buffer e il segnale 'killed'.
+    """
+    ffmpeg_bin = shutil.which("ffmpeg") or "ffmpeg"
     now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     target_path = f"/tmp/cam_{camera_name}_{now}.jpg"
-    
-    # Eseguiamo con protezione totale dei log per non rompere il JSON-RPC
-    process = await asyncio.create_subprocess_exec(
-        bin_path, "snap", camera_name, "--out", target_path,
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
-        env=os.environ.copy()
-    )
-    
+
+    # Comando ottimizzato: TCP forzato e niente audio per massima velocità
+    cmd = [
+        "-y",
+        "-rtsp_transport", "tcp",
+        "-i", camera_rtsp_url,
+        "-frames:v", "1",
+        "-q:v", "2",
+        target_path
+    ]
+
     try:
-        await asyncio.wait_for(process.wait(), timeout=45)
-        if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
-            return f"Snapshot creato: {target_path}"
-        return "Errore: File non generato. Controlla se 'camsnap list' vede la camera."
+        # Esecuzione asincrona: non blocca il server MCP
+        process = await asyncio.create_subprocess_exec(
+            ffmpeg_bin, *cmd,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE
+        )
+
+        _, stderr = await asyncio.wait_for(process.communicate(), timeout=45)
+
+        if process.returncode == 0 and os.path.exists(target_path):
+            return f"Snapshot creato con successo: {target_path}"
+        else:
+            err_msg = stderr.decode() if stderr else "Errore sconosciuto"
+            return f"FFmpeg fallito (Code {process.returncode}): {err_msg}"
+            
     except asyncio.TimeoutExpired:
-        process.kill()
-        return "Errore: Timeout (45s)."
+        return "Errore: Timeout FFmpeg durante la cattura."
+    except Exception as e:
+        return f"Errore critico FFmpeg: {str(e)}"
 
 def main():
     mcp.run()
