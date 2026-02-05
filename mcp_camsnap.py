@@ -16,40 +16,36 @@ mcp = FastMCP("Camsnap Manager")
 def run_executable_stream(args: list[str], is_snap: bool = False) -> str:
     camsnap_bin = shutil.which("camsnap") or "camsnap"
     
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+    env["DISPLAY"] = "" 
+    env["XDG_RUNTIME_DIR"] = "/tmp"
+
     try:
-        # Per la list: cattura stdout normalmente
-        if not is_snap:
-            result = subprocess.run(
-                [camsnap_bin] + args,
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
-            if result.returncode == 0:
-                return result.stdout.strip() or "Nessun output"
-            else:
-                return f"Errore {result.returncode}: {result.stderr}"
+        process = subprocess.Popen(
+            [camsnap_bin] + args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env
+        )
         
-        # Per lo snap: lascia stderr libero (ffmpeg ne ha bisogno)
-        else:
-            process = subprocess.Popen(
-                [camsnap_bin] + args,
-                stdout=subprocess.PIPE,
-                stderr=None,  # NON catturare stderr - lascialo libero
-                text=True
-            )
-            
-            stdout, _ = process.communicate(timeout=45)
-            
-            if process.returncode == 0:
-                return stdout.strip() or "Snap completato"
-            else:
-                return f"Errore {process.returncode} - processo terminato"
-            
-    except subprocess.TimeoutExpired:
-        if is_snap:
+        try:
+            stdout, stderr = process.communicate(timeout=45)
+        except subprocess.TimeoutExpired:
             process.kill()
-        return "Errore: Timeout"
+            process.wait()
+            return "Errore: Timeout (45s) durante la comunicazione con la camera."
+        
+        clean_stdout = stdout.strip()
+        clean_stderr = stderr.strip()
+        
+        if process.returncode == 0:
+            return clean_stdout or "Operazione completata."
+        else:
+            # Mostra TUTTO per capire cosa dice ffmpeg
+            return f"Errore {process.returncode}\n\nSTDERR completo:\n{clean_stderr}\n\nSTDOUT:\n{clean_stdout}"
+            
     except Exception as e:
         return f"Errore critico: {str(e)}"
 
@@ -66,17 +62,13 @@ def capture_snap(camera_name: str) -> str:
     
     res = run_executable_stream(["snap", camera_name, "--out", target_path], is_snap=True)
     
-    # Attendi che il file sia scritto
-    time.sleep(1)
+    time.sleep(0.5)
     
-    if os.path.exists(target_path):
-        file_size = os.path.getsize(target_path)
-        if file_size > 0:
-            return f"✓ Snapshot: {target_path} ({file_size} bytes)"
-        else:
-            return f"✗ File creato ma vuoto"
+    if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
+        return f"Snapshot creato con successo: {target_path}"
     
-    return f"✗ File non creato. Log: {res}"
+    # Mostra l'intero log per debug
+    return f"Cattura fallita. Dettagli completi:\n{res}"
 
 if __name__ == "__main__":
     mcp.run()
