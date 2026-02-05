@@ -12,75 +12,55 @@ from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("Camsnap Manager")
 
-def get_enhanced_env():
-    """Ricostruisce un ambiente che include i percorsi comuni di Linuxbrew e local bin."""
-    env = os.environ.copy()
-    
-    # Percorsi probabili per Linuxbrew e installazioni locali
-    extra_paths = [
-        os.path.expanduser("~/.local/bin"),
-        "/home/linuxbrew/.linuxbrew/bin",
-        "/opt/homebrew/bin",
-    ]
-    
-    current_path = env.get("PATH", "")
-    # Uniamo i percorsi extra a quello attuale, filtrando quelli che non esistono
-    valid_extras = [p for p in extra_paths if os.path.isdir(p)]
-    env["PATH"] = ":".join(valid_extras + [current_path])
-    
-    return env
-
 def run_executable(args: list[str]) -> str:
-    env = get_enhanced_env()
-    
-    # Cerchiamo il binario nel PATH aggiornato
-    camsnap_bin = shutil.which("camsnap", path=env["PATH"])
-    
-    if not camsnap_bin:
-        return "Errore: comando 'camsnap' non trovato. Assicurati che sia installato e nel PATH."
+    # Invece di ricostruire il PATH, usiamo quello che OpenCode eredita, 
+    # ma cerchiamo il binario in modo dinamico.
+    camsnap_bin = shutil.which("camsnap") or "camsnap"
 
     try:
-        process = subprocess.Popen(
+        # Usiamo subprocess.run che è più atomico e gestisce meglio i buffer
+        # Reindirizziamo stderr su stdout per vedere tutto in un unico flusso
+        result = subprocess.run(
             [camsnap_bin] + args,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
-            env=env
+            timeout=45 # FFmpeg può essere lento a negoziare l'RTSP
         )
         
-        stdout, stderr = process.communicate(timeout=30)
-        
-        if process.returncode == 0:
-            return stdout.strip() or "Operazione completata."
+        if result.returncode == 0:
+            return result.stdout.strip() or "Successo."
         else:
-            # Uniamo stdout e stderr per dare all'AI più contesto sul fallimento
-            return f"Errore (Codice {process.returncode}):\n{stderr}\n{stdout}"
+            return f"Errore (Code {result.returncode}):\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
             
-    except subprocess.TimeoutExpired:
-        process.kill()
-        return "Errore: Il processo ha superato il timeout di 30 secondi."
+    except subprocess.TimeoutExpired as e:
+        # Se va in timeout, restituiamo quello che ha catturato finora
+        stdout = e.stdout.decode() if e.stdout else ""
+        stderr = e.stderr.decode() if e.stderr else ""
+        return f"Errore: Timeout scaduto.\nParziale STDOUT: {stdout}\nParziale STDERR: {stderr}"
     except Exception as e:
-        return f"Errore critico: {str(e)}"
+        return f"Errore imprevisto: {str(e)}"
 
 @mcp.tool()
 def list_cameras() -> str:
-    """Elenca le telecamere configurate in camsnap."""
+    """Elenca le telecamere configurate."""
     return run_executable(["list"])
 
 @mcp.tool()
 def capture_snap(camera_name: str) -> str:
-    """Cattura un frame e lo salva in /tmp con timestamp."""
+    """Cattura un frame e lo salva in /tmp."""
     now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     target_path = f"/tmp/cam_{camera_name}_{now}.jpg"
-    result = run_executable(["snap", camera_name, "--out", target_path])
     
-    if "Errore" in result:
-        return result
-    return f"Snapshot salvato con successo: {target_path}"
+    # Eseguiamo il comando
+    res = run_executable(["snap", camera_name, "--out", target_path])
+    
+    if os.path.exists(target_path):
+        return f"Snapshot creato: {target_path}"
+    return f"Fallito: {res}"
 
 @mcp.tool()
 def check_status() -> str:
-    """Esegue la diagnostica di camsnap (FFmpeg, connettività, config)."""
+    """Diagnostica lo stato del sistema."""
     return run_executable(["doctor", "--probe"])
 
 if __name__ == "__main__":
