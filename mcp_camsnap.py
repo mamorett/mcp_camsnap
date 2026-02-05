@@ -1,86 +1,69 @@
+# /// script
+# dependencies = [
+#   "mcp",
+# ]
+# ///
+
 import subprocess
 import os
+import datetime
 import shutil
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("Camsnap Manager")
 
-def run_executable_stream(args: list[str]) -> str:
-    camsnap_bin = shutil.which("camsnap") or "camsnap"
-    
-    # Prepariamo l'esecuzione catturando stdout e stderr separatamente
-    # e forzando l'assenza di buffering (PYTHONUNBUFFERED)
+def get_env():
+    """Ricostruisce l'ambiente includendo i path di Brew in modo dinamico."""
     env = os.environ.copy()
-    env["PYTHONUNBUFFERED"] = "1"
+    brew_paths = ["/home/linuxbrew/.linuxbrew/bin", "/opt/homebrew/bin", os.path.expanduser("~/.local/bin")]
+    env["PATH"] = ":".join(brew_paths) + ":" + env.get("PATH", "")
+    return env
 
+def run_command(args: list[str], timeout: int = 40):
+    """Esegue il comando gestendo i buffer per evitare il crash di FFmpeg."""
+    env = get_env()
+    camsnap_bin = shutil.which("camsnap", path=env["PATH"]) or "camsnap"
+    
     try:
-        # Usiamo Popen per leggere in tempo reale ed evitare il deadlock dei buffer
-        process = subprocess.Popen(
+        # Usiamo subprocess.run con capture_output. 
+        # Per evitare che i log di FFmpeg (stderr) intasino tutto, 
+        # aumentiamo il timeout e leggiamo solo alla fine.
+        result = subprocess.run(
             [camsnap_bin] + args,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
-            env=env
+            env=env,
+            timeout=timeout
         )
-        
-        # Leggiamo tutto l'output disponibile
-        stdout, stderr = process.communicate(timeout=30)
-        
-        # Pulizia dell'output: camsnap potrebbe usare caratteri speciali per le tabelle
-        clean_stdout = stdout.strip()
-        
-        if process.returncode == 0:
-            if not clean_stdout and stderr:
-                # A volte i log utili finiscono in stderr anche se il codice è 0
-                return f"Output (da stderr): {stderr.strip()}"
-            return clean_stdout or "Comando eseguito, ma output vuoto."
-        else:
-            return f"Errore {process.returncode}\nLOG: {stderr}\nOUT: {stdout}"
-            
-    except subprocess.TimeoutExpired:
-        process.kill()
-        return "Errore: Timeout (il processo non rispondeva)."
+        return result
+    except subprocess.TimeoutExpired as e:
+        return e
     except Exception as e:
-        return f"Errore critico: {str(e)}"
+        return str(e)
 
 @mcp.tool()
 def list_cameras() -> str:
     """Elenca le telecamere configurate."""
-    # Proviamo a forzare un output semplice se camsnap lo supporta, 
-    # altrimenti usiamo il metodo stream-safe
-    return run_executable_stream(["list"])
+    res = run_command(["list"])
+    if isinstance(res, str): return res
+    return res.stdout.strip() if res.returncode == 0 else f"Errore: {res.stderr}"
 
 @mcp.tool()
 def capture_snap(camera_name: str) -> str:
-    """Cattura un frame riducendo al minimo l'overhead di sistema."""
-    import datetime
+    """Cattura un frame dalla telecamera specificata."""
     now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     target_path = f"/tmp/cam_{camera_name}_{now}.jpg"
     
-    # Usiamo un timeout leggermente più lungo per FFmpeg
-    # ma chiediamo a camsnap di essere conciso.
-    # Se camsnap permette di passare flag a ffmpeg, sarebbe ideale.
-    # Altrimenti, aumentiamo la tolleranza del nostro wrapper.
+    # Eseguiamo lo snap. Aumentiamo il timeout perché FFmpeg su RTSP può essere lento.
+    res = run_command(["snap", camera_name, "--out", target_path], timeout=60)
     
-    # PROVA: esecuzione con cattura differenziata per evitare deadlock
-    try:
-        # Usiamo un approccio che scarta stderr se non necessario 
-        # per evitare saturazione dei buffer durante il video decoding
-        process = subprocess.run(
-            [shutil.which("camsnap") or "camsnap", "snap", camera_name, "--out", target_path],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=60, # Un minuto intero per negoziare lo stream
-            env=get_dynamic_env() # Usa la funzione che abbiamo creato prima
-        )
-        
-        if os.path.exists(target_path):
-            return f"Snapshot OK: {target_path}"
-        
-        return f"Errore (Code {process.returncode}):\n{process.stderr}"
-        
-    except subprocess.TimeoutExpired:
-        return "Errore: FFmpeg è stato troppo lento (Timeout 60s)."
-    except Exception as e:
-        return f"Errore critico: {str(e)}"
+    if os.path.exists(target_path):
+        return f"Snapshot salvato: {target_path}"
+    
+    # Se il file non esiste, riportiamo l'errore per il debug
+    if hasattr(res, 'stderr'):
+        return f"Fallito. Errore FFmpeg:\n{res.stderr}"
+    return f"Errore sconosciuto: {str(res)}"
+
+if __name__ == "__main__":
+    mcp.run()
