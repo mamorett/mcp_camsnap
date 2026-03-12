@@ -4,6 +4,7 @@ import shutil
 import datetime
 import subprocess
 from mcp.server.fastmcp import FastMCP, Image
+from PIL import Image as PILImage
 
 import tempfile
 
@@ -66,11 +67,10 @@ def list_cameras() -> str:
     """
     return run_camsnap_sync(["list"])
 
+RESIZE_MAX = os.environ.get("CAMSNAP_RESIZE_MAX")
+
 @mcp.tool()
 async def capture_snap(camera_name: str) -> Image:
-    """
-    Captures a frame from a camera and returns it as an inline image directly to the client.
-    """
     camsnap_bin = shutil.which("camsnap") or "camsnap"
     
     with tempfile.NamedTemporaryFile(dir=get_temp_dir(), prefix="snap_img_", suffix=".jpg", delete=False) as tmp_file:
@@ -81,27 +81,43 @@ async def capture_snap(camera_name: str) -> Image:
     try:
         process = await asyncio.create_subprocess_exec(
             camsnap_bin, *cmd_args,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
         )
-        await asyncio.wait_for(process.wait(), timeout=45)
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=45)
 
         if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
-            with open(target_path, "rb") as f:
-                data = f.read()
-            # Try to remove the file after reading since we return the binary
+            if RESIZE_MAX:
+                try:
+                    max_size = int(RESIZE_MAX)
+                    with PILImage.open(target_path) as img:
+                        img.thumbnail((max_size, max_size))
+                        
+                        buffer = io.BytesIO()
+                        # quality=85 è un ottimo compromesso tra peso e dettaglio
+                        img.save(buffer, format="JPEG", quality=85, optimize=True)
+                        data = buffer.getvalue()
+                except Exception as resize_err:
+                    # Se il resize fallisce, mandiamo l'originale come fallback
+                    with open(target_path, "rb") as f:
+                        data = f.read()
+            else:
+                # Nessuna variabile settata: mandiamo il file originale
+                with open(target_path, "rb") as f:
+                    data = f.read()
+
             try:
                 os.remove(target_path)
             except OSError:
                 pass
+                
             return Image(data=data, format="jpeg")
         else:
-            raise RuntimeError(f"Error: Camsnap finished but the file {target_path} is missing or empty.")
+            error_output = stderr.decode().strip()
+            raise RuntimeError(f"File vuoto. Stderr: {error_output}")
             
-    except asyncio.TimeoutError:
-        raise RuntimeError(f"Error: Timeout while taking snapshot of '{camera_name}'.")
     except Exception as e:
-        raise RuntimeError(f"Async critical error: {str(e)}")
+        raise RuntimeError(f"Errore durante la cattura: {str(e)}")
 
 @mcp.tool()
 async def capture_clip(camera_name: str, duration: int = 10) -> str:
