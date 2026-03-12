@@ -91,16 +91,36 @@ async def capture_snap(camera_name: str) -> Image:
     except Exception as e:
         raise RuntimeError(f"Async critical error: {str(e)}")
 
-@mcp.resource("file:///tmp/vision_snap_{camera_name}.jpg")
-def get_snap_resource(camera_name: str) -> bytes:
+@mcp.tool()
+async def capture_clip(camera_name: str, duration: int = 10) -> str:
     """
-    Exposes snapshots as MCP resources.
+    Records a short MP4 video clip from a camera and saves it to a temporary file.
+    Returns the absolute path to the saved MP4 file.
     """
-    path = f"/tmp/vision_snap_{camera_name}.jpg"
-    if os.path.exists(path):
-        with open(path, "rb") as f:
-            return f.read()
-    return b""
+    camsnap_bin = shutil.which("camsnap") or "camsnap"
+    now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    target_path = f"/tmp/clip_{camera_name}_{now}.mp4"
+    
+    cmd_args = get_base_args() + ["clip", camera_name, "--dur", f"{duration}s", "--out", target_path]
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            camsnap_bin, *cmd_args,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL
+        )
+        # Add 15 seconds buffer to the requested duration for timeout
+        await asyncio.wait_for(process.wait(), timeout=duration + 15)
+
+        if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
+            return f"Clip saved successfully: {target_path}"
+        else:
+            raise RuntimeError(f"Error: Camsnap finished but the file {target_path} is missing or empty.")
+            
+    except asyncio.TimeoutError:
+        raise RuntimeError(f"Error: Timeout while recording clip of '{camera_name}' (duration: {duration}s).")
+    except Exception as e:
+        raise RuntimeError(f"Async critical error: {str(e)}")
 
 def main():
     mcp.run()
