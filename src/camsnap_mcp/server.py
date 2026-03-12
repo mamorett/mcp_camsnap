@@ -80,7 +80,7 @@ async def capture_snap(camera_name: str) -> str:
         else:
             return f"Error: Camsnap finished but the file {target_path} is missing or empty."
             
-    except asyncio.TimeoutExpired:
+    except asyncio.TimeoutError:
         return f"Error: Timeout while taking snapshot of '{camera_name}'."
     except Exception as e:
         return f"Async critical error: {str(e)}"
@@ -116,7 +116,7 @@ async def get_camera_snapshot_as_image(camera_name: str) -> Image:
         else:
             raise RuntimeError(f"Error: Camsnap finished but the file {target_path} is missing or empty.")
             
-    except asyncio.TimeoutExpired:
+    except asyncio.TimeoutError:
         raise RuntimeError(f"Error: Timeout while taking snapshot of '{camera_name}'.")
     except Exception as e:
         raise RuntimeError(f"Async critical error: {str(e)}")
