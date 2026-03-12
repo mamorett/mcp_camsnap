@@ -26,9 +26,11 @@ Before using this MCP server, you must have `camsnap` installed and configured o
 1. **Install camsnap**: Follow the instructions at [steipete/camsnap](https://github.com/steipete/camsnap) to install the binary and its dependencies (like FFmpeg).
 2. **Configure cameras**: Ensure you have a valid configuration file. By default, `camsnap` looks for it in `$XDG_CONFIG_HOME/camsnap/config.yaml` or `~/.camsnap.yaml`. You can verify your setup by running `camsnap list` in your terminal.
 
-### Custom Configuration Path
+### Custom Configuration & Temp Paths
 
 If your configuration file is in a non-standard location, you can specify it using the `CAMSNAP_CONFIG` environment variable in your MCP client settings.
+
+Additionally, by default MCP saves local files (snapshots, clips) to `~/.camsnap/tmp`. If your MCP client runs in a restricted sandbox (like Claude Desktop) and needs those files stored elsewhere, you can override this path using `CAMSNAP_TMP_DIR`.
 
 ---
 
@@ -47,7 +49,8 @@ Add the following to your MCP client configuration (e.g., `claude_desktop_config
         "mcp-camsnap"
       ],
       "env": {
-        "CAMSNAP_CONFIG": "/path/to/your/camsnap.yaml"
+        "CAMSNAP_CONFIG": "/path/to/your/camsnap.yaml",
+        "CAMSNAP_TMP_DIR": "/path/to/a/safe/tmp/dir"
       }
     }
   }
@@ -65,8 +68,8 @@ This MCP server exposes the following tools:
 | Tool | Description |
 |---|---|
 | `list_cameras` | Lists all cameras configured in your `~/.camsnap.yaml` file. |
-| `capture_snap` | Captures a frame from a camera, saves it to a file in `/tmp`, and returns it inline directly to the client as an image. |
-| `capture_clip` | Records a short MP4 video clip from a camera for a specified duration and returns the saved file path. |
+| `capture_snap` | Captures a frame from a camera, saves it to a file in `~/.camsnap/tmp`, and returns it inline directly to the client as an image. |
+| `capture_clip` | Records a short MP4 video clip from a camera for a specified duration to `~/.camsnap/tmp` and returns the absolute file path. |
 
 ---
 

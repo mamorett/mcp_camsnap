@@ -11,6 +11,15 @@ mcp = FastMCP("Camsnap Manager")
 # Global config path from environment variable
 CAMSNAP_CONFIG = os.environ.get("CAMSNAP_CONFIG")
 
+def get_temp_dir() -> str:
+    """
+    Returns a safe temporary directory that is accessible by the MCP server sandbox.
+    Uses CAMSNAP_TMP_DIR env var if set, otherwise defaults to ~/.camsnap/tmp.
+    """
+    tmp_dir = os.environ.get("CAMSNAP_TMP_DIR", os.path.expanduser("~/.camsnap/tmp"))
+    os.makedirs(tmp_dir, exist_ok=True)
+    return tmp_dir
+
 def get_base_args() -> list[str]:
     """Returns the base arguments for camsnap, including config if set."""
     args = []
@@ -62,7 +71,9 @@ async def capture_snap(camera_name: str) -> Image:
     """
     camsnap_bin = shutil.which("camsnap") or "camsnap"
     now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    target_path = f"/tmp/snap_img_{camera_name}_{now}.jpg"
+    
+    tmp_dir = get_temp_dir()
+    target_path = os.path.join(tmp_dir, f"snap_img_{camera_name}_{now}.jpg")
     
     cmd_args = get_base_args() + ["snap", camera_name, "--out", target_path]
 
@@ -99,7 +110,9 @@ async def capture_clip(camera_name: str, duration: int = 10) -> str:
     """
     camsnap_bin = shutil.which("camsnap") or "camsnap"
     now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    target_path = f"/tmp/clip_{camera_name}_{now}.mp4"
+    
+    tmp_dir = get_temp_dir()
+    target_path = os.path.join(tmp_dir, f"clip_{camera_name}_{now}.mp4")
     
     cmd_args = get_base_args() + ["clip", camera_name, "--dur", f"{duration}s", "--out", target_path]
 
