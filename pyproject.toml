@@ -1,15 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
-name = "mcp-camsnap"
+name = "camsnap-mcp"
 version = "0.1.0"
-dependencies = [
-    "mcp",
-]
+description = "MCP server for camsnap"
+requires-python = ">=3.10"
+dependencies = ["mcp[cli]"]
 
 [project.scripts]
-# Qui diciamo: l'eseguibile 'mcp-camsnap' deve cercare 
-# nel file 'mcp_camsnap.py' la funzione 'main'
-mcp-camsnap = "mcp_camsnap:main"
+camsnap-mcp = "camsnap_mcp.server:main"
 
-[tool.setuptools]
-# Fondamentale: dice a setuptools che il file mcp_camsnap.py è il modulo da includere
-py-modules = ["mcp_camsnap"]
+[tool.hatch.build.targets.wheel]
+packages = ["src/camsnap_mcp"]
