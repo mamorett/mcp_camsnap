@@ -68,7 +68,7 @@ This MCP server exposes the following tools:
 | Tool | Description |
 |---|---|
 | `list_cameras` | Lists all cameras configured in your `~/.camsnap.yaml` file. |
-| `capture_snap` | Captures a frame from a camera, saves it to a file in `~/.camsnap/tmp`, and returns it inline directly to the client as an image. |
+| `capture_snap` | Captures a frame from a camera and returns it inline directly to the client as an image. |
 | `capture_clip` | Records a short MP4 video clip from a camera for a specified duration to `~/.camsnap/tmp` and returns the absolute file path. |
 
 ---
