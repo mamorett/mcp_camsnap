@@ -86,7 +86,7 @@ async def capture_snap(camera_name: str) -> str:
         return f"Async critical error: {str(e)}"
 
 @mcp.tool()
-async def get_camera_snapshot_as_image(camera_name: str) -> Image | str:
+async def get_camera_snapshot_as_image(camera_name: str) -> Image:
     """
     Captures a frame from a camera and returns it as an inline image directly to the client.
     """
@@ -114,12 +114,12 @@ async def get_camera_snapshot_as_image(camera_name: str) -> Image | str:
                 pass
             return Image(data=data, format="jpeg")
         else:
-            return f"Error: Camsnap finished but the file {target_path} is missing or empty."
+            raise RuntimeError(f"Error: Camsnap finished but the file {target_path} is missing or empty.")
             
     except asyncio.TimeoutExpired:
-        return f"Error: Timeout while taking snapshot of '{camera_name}'."
+        raise RuntimeError(f"Error: Timeout while taking snapshot of '{camera_name}'.")
     except Exception as e:
-        return f"Async critical error: {str(e)}"
+        raise RuntimeError(f"Async critical error: {str(e)}")
 
 @mcp.resource("file:///tmp/vision_snap_{camera_name}.jpg")
 def get_snap_resource(camera_name: str) -> bytes:
