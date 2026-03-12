@@ -16,13 +16,11 @@ CAMSNAP_CONFIG = os.environ.get("CAMSNAP_CONFIG")
 def get_temp_dir() -> str:
     """
     Returns a safe temporary directory that is accessible by the MCP server sandbox.
-    Uses CAMSNAP_TMP_DIR env var if set, otherwise uses Python's tempfile location.
+    Uses CAMSNAP_TMP_DIR env var if set, otherwise defaults to ~/.camsnap/tmp.
     """
-    if "CAMSNAP_TMP_DIR" in os.environ:
-        tmp_dir = os.environ["CAMSNAP_TMP_DIR"]
-        os.makedirs(tmp_dir, exist_ok=True)
-        return tmp_dir
-    return tempfile.gettempdir()
+    tmp_dir = os.environ.get("CAMSNAP_TMP_DIR", os.path.expanduser("~/.camsnap/tmp"))
+    os.makedirs(tmp_dir, exist_ok=True)
+    return tmp_dir
 
 def get_base_args() -> list[str]:
     """Returns the base arguments for camsnap, including config if set."""
@@ -113,10 +111,8 @@ async def capture_clip(camera_name: str, duration: int = 10) -> str:
     """
     camsnap_bin = shutil.which("camsnap") or "camsnap"
     
-    # We don't delete the clip immediately because the MP4 is returned via file path to the consumer
-    tmp_file = tempfile.NamedTemporaryFile(dir=get_temp_dir(), prefix="clip_", suffix=".mp4", delete=False)
-    target_path = tmp_file.name
-    tmp_file.close()
+    with tempfile.NamedTemporaryFile(dir=get_temp_dir(), prefix="clip_", suffix=".mp4", delete=False) as tmp_file:
+        target_path = tmp_file.name
     
     cmd_args = get_base_args() + ["clip", camera_name, "--dur", f"{duration}s", "--out", target_path]
 
@@ -138,6 +134,7 @@ async def capture_clip(camera_name: str, duration: int = 10) -> str:
         raise RuntimeError(f"Error: Timeout while recording clip of '{camera_name}' (duration: {duration}s).")
     except Exception as e:
         raise RuntimeError(f"Async critical error: {str(e)}")
+
 
 def main():
     mcp.run()
