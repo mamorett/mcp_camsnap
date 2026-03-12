@@ -56,37 +56,7 @@ def list_cameras() -> str:
     return run_camsnap_sync(["list"])
 
 @mcp.tool()
-async def capture_snap(camera_name: str) -> str:
-    """
-    Captures a frame from a camera and saves it to a temporary file.
-    Returns the path to the saved image.
-    """
-    camsnap_bin = shutil.which("camsnap") or "camsnap"
-    now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    target_path = f"/tmp/snap_{camera_name}_{now}.jpg"
-    
-    cmd_args = get_base_args() + ["snap", camera_name, "--out", target_path]
-
-    try:
-        process = await asyncio.create_subprocess_exec(
-            camsnap_bin, *cmd_args,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL
-        )
-        await asyncio.wait_for(process.wait(), timeout=45)
-
-        if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
-            return f"Snapshot saved successfully: {target_path}"
-        else:
-            return f"Error: Camsnap finished but the file {target_path} is missing or empty."
-            
-    except asyncio.TimeoutError:
-        return f"Error: Timeout while taking snapshot of '{camera_name}'."
-    except Exception as e:
-        return f"Async critical error: {str(e)}"
-
-@mcp.tool()
-async def get_camera_snapshot_as_image(camera_name: str) -> Image:
+async def capture_snap(camera_name: str) -> Image:
     """
     Captures a frame from a camera and returns it as an inline image directly to the client.
     """
