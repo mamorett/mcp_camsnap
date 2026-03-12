@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-camsnap"
-version = "0.1.1" # Magari alza la versione così uv capisce che è cambiato qualcosa
+version = "0.1.2" # Magari alza la versione così uv capisce che è cambiato qualcosa
 description = "MCP server for camsnap"
 requires-python = ">=3.10"
 dependencies = [

@@ -28,9 +28,9 @@ Before using this MCP server, you must have `camsnap` installed and configured o
 
 ### Custom Configuration & Temp Paths
 
-If your configuration file is in a non-standard location, you can specify it using the `CAMSNAP_CONFIG` environment variable in your MCP client settings.
-
-Additionally, by default MCP saves local files (snapshots, clips) to `~/.camsnap/tmp`. If your MCP client runs in a restricted sandbox (like Claude Desktop) and needs those files stored elsewhere, you can override this path using `CAMSNAP_TMP_DIR`.
+- **`CAMSNAP_CONFIG`**: If your configuration file is in a non-standard location, you can specify it using this environment variable.
+- **`CAMSNAP_TMP_DIR`**: By default, MCP saves local files (snapshots, clips) to `~/.camsnap/tmp`. Use this to override the path if your MCP client runs in a restricted sandbox.
+- **`CAMSNAP_RESIZE_MAX`**: Set this to a pixel value (e.g., `1024` or `768`) to automatically resize captured snapshots. This is useful for reducing token usage in LLM prompts while maintaining enough detail for analysis. If not set, the original image size is returned.
 
 ---
 
@@ -50,7 +50,8 @@ Add the following to your MCP client configuration (e.g., `claude_desktop_config
       ],
       "env": {
         "CAMSNAP_CONFIG": "/path/to/your/camsnap.yaml",
-        "CAMSNAP_TMP_DIR": "/path/to/a/safe/tmp/dir"
+        "CAMSNAP_TMP_DIR": "/path/to/a/safe/tmp/dir",
+        "CAMSNAP_RESIZE_MAX": "1024"
       }
     }
   }

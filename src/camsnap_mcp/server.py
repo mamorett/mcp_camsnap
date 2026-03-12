@@ -3,10 +3,10 @@ import os
 import shutil
 import datetime
 import subprocess
+import io
+import tempfile
 from mcp.server.fastmcp import FastMCP, Image
 from PIL import Image as PILImage
-
-import tempfile
 
 # Initialize FastMCP server
 mcp = FastMCP("Camsnap Manager")
@@ -67,11 +67,10 @@ def list_cameras() -> str:
     """
     return run_camsnap_sync(["list"])
 
-RESIZE_MAX = os.environ.get("CAMSNAP_RESIZE_MAX")
-
 @mcp.tool()
 async def capture_snap(camera_name: str) -> Image:
     camsnap_bin = shutil.which("camsnap") or "camsnap"
+    resize_max = os.environ.get("CAMSNAP_RESIZE_MAX")
     
     with tempfile.NamedTemporaryFile(dir=get_temp_dir(), prefix="snap_img_", suffix=".jpg", delete=False) as tmp_file:
         target_path = tmp_file.name
@@ -87,10 +86,14 @@ async def capture_snap(camera_name: str) -> Image:
         stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=45)
 
         if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
-            if RESIZE_MAX:
+            if resize_max:
                 try:
-                    max_size = int(RESIZE_MAX)
+                    max_size = int(resize_max)
                     with PILImage.open(target_path) as img:
+                        # Convert to RGB to be sure it works with JPEG format
+                        if img.mode != "RGB":
+                            img = img.convert("RGB")
+                            
                         img.thumbnail((max_size, max_size))
                         
                         buffer = io.BytesIO()
