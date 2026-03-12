@@ -43,8 +43,8 @@ Add the following to your MCP client configuration (e.g., `claude_desktop_config
       "command": "uvx",
       "args": [
         "--from",
-        "git+https://github.com/mamorett/camsnap-mcp",
-        "camsnap-mcp"
+        "git+https://github.com/mamorett/mcp_camsnap.git",
+        "mcp-camsnap"
       ],
       "env": {
         "CAMSNAP_CONFIG": "/path/to/your/camsnap.yaml"
@@ -74,8 +74,8 @@ This MCP server exposes the following tools:
 If you want to run or modify the server locally:
 
 ```bash
-git clone https://github.com/mamorett/camsnap-mcp
-cd camsnap-mcp
+git clone https://github.com/mamorett/mcp_camsnap
+cd mcp_camsnap
 pip install -e "."
-camsnap-mcp
+mcp-camsnap
 ```

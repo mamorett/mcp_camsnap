@@ -3,14 +3,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "camsnap-mcp"
+name = "mcp-camsnap"
 version = "0.1.0"
 description = "MCP server for camsnap"
 requires-python = ">=3.10"
 dependencies = ["mcp[cli]"]
 
 [project.scripts]
-camsnap-mcp = "camsnap_mcp.server:main"
+mcp-camsnap = "camsnap_mcp.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/camsnap_mcp"]
