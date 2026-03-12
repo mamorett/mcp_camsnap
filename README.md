@@ -24,7 +24,11 @@ camsnap-mcp/
 Before using this MCP server, you must have `camsnap` installed and configured on your system.
 
 1. **Install camsnap**: Follow the instructions at [steipete/camsnap](https://github.com/steipete/camsnap) to install the binary and its dependencies (like FFmpeg).
-2. **Configure cameras**: Ensure you have a valid configuration file (usually `~/.camsnap.yaml`). You can verify your setup by running `camsnap list` in your terminal.
+2. **Configure cameras**: Ensure you have a valid configuration file. By default, `camsnap` looks for it in `$XDG_CONFIG_HOME/camsnap/config.yaml` or `~/.camsnap.yaml`. You can verify your setup by running `camsnap list` in your terminal.
+
+### Custom Configuration Path
+
+If your configuration file is in a non-standard location, you can specify it using the `CAMSNAP_CONFIG` environment variable in your MCP client settings.
 
 ---
 
@@ -41,7 +45,10 @@ Add the following to your MCP client configuration (e.g., `claude_desktop_config
         "--from",
         "git+https://github.com/mamorett/camsnap-mcp",
         "camsnap-mcp"
-      ]
+      ],
+      "env": {
+        "CAMSNAP_CONFIG": "/path/to/your/camsnap.yaml"
+      }
     }
   }
 }

@@ -8,16 +8,27 @@ from mcp.server.fastmcp import FastMCP, Image
 # Initialize FastMCP server
 mcp = FastMCP("Camsnap Manager")
 
+# Global config path from environment variable
+CAMSNAP_CONFIG = os.environ.get("CAMSNAP_CONFIG")
+
+def get_base_args() -> list[str]:
+    """Returns the base arguments for camsnap, including config if set."""
+    args = []
+    if CAMSNAP_CONFIG:
+        args.extend(["--config", CAMSNAP_CONFIG])
+    return args
+
 def run_camsnap_sync(args: list[str]) -> str:
     """
     Executes a camsnap command synchronously and returns the output.
     """
     camsnap_bin = shutil.which("camsnap") or "camsnap"
+    full_args = get_base_args() + args
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     try:
         process = subprocess.Popen(
-            [camsnap_bin] + args,
+            [camsnap_bin] + full_args,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -40,7 +51,7 @@ def run_camsnap_sync(args: list[str]) -> str:
 @mcp.tool()
 def list_cameras() -> str:
     """
-    Lists all cameras configured in ~/.camsnap.yaml.
+    Lists all cameras configured in the camsnap config file.
     """
     return run_camsnap_sync(["list"])
 
@@ -53,10 +64,12 @@ async def capture_snap(camera_name: str) -> str:
     camsnap_bin = shutil.which("camsnap") or "camsnap"
     now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     target_path = f"/tmp/snap_{camera_name}_{now}.jpg"
+    
+    cmd_args = get_base_args() + ["snap", camera_name, "--out", target_path]
 
     try:
         process = await asyncio.create_subprocess_exec(
-            camsnap_bin, "snap", camera_name, "--out", target_path,
+            camsnap_bin, *cmd_args,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL
         )
