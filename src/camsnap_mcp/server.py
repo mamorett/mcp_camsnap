@@ -1,10 +1,9 @@
 import asyncio
 import os
 import shutil
+import datetime
 import subprocess
 from mcp.server.fastmcp import FastMCP, Image
-from mcp.types import TextContent, ImageContent  # aggiungi questo import
-import base64
 
 import tempfile
 
@@ -70,10 +69,9 @@ def list_cameras() -> str:
     return run_camsnap_sync(["list"])
 
 @mcp.tool()
-async def capture_snap(camera_name: str) -> list:
+async def capture_snap(camera_name: str) -> Image:
     """
     Captures a frame from a camera and returns it as an inline image directly to the client.
-    Returns both the image data (for vision analysis) and a base64 markdown string (for rendering).
     """
     camsnap_bin = shutil.which("camsnap") or "camsnap"
     
@@ -93,21 +91,14 @@ async def capture_snap(camera_name: str) -> list:
         if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
             with open(target_path, "rb") as f:
                 data = f.read()
+            # Try to remove the file after reading since we return the binary
             try:
                 os.remove(target_path)
             except OSError:
                 pass
-            
-            b64 = base64.b64encode(data).decode("utf-8")
-            
-            return [
-                # Questo permette al LLM di "vedere" e analizzare l'immagine
-                ImageContent(type="image", data=b64, mimeType="image/jpeg"),
-                # Questo fa sì che l'immagine venga renderizzata in chat
-                TextContent(type="text", text=f"![snap](data:image/jpeg;base64,{b64})")
-            ]
+            return Image(data=data, format="jpeg")
         else:
-            raise RuntimeError(f"Error: file {target_path} missing or empty.")
+            raise RuntimeError(f"Error: Camsnap finished but the file {target_path} is missing or empty.")
             
     except asyncio.TimeoutError:
         raise RuntimeError(f"Error: Timeout while taking snapshot of '{camera_name}'.")
