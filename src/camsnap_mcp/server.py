@@ -69,6 +69,10 @@ def list_cameras() -> str:
 
 @mcp.tool()
 async def capture_snap(camera_name: str) -> Image:
+    """
+    Captures a single JPEG snapshot from the specified camera.
+    Returns the image data.
+    """
     camsnap_bin = shutil.which("camsnap") or "camsnap"
     resize_max = os.environ.get("CAMSNAP_RESIZE_MAX")
     
