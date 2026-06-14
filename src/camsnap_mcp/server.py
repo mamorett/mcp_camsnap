@@ -5,6 +5,7 @@ import datetime
 import subprocess
 import io
 import tempfile
+import base64
 from mcp.server.fastmcp import FastMCP, Image
 from PIL import Image as PILImage
 
@@ -66,6 +67,46 @@ def list_cameras() -> str:
     Lists all cameras configured in the camsnap config file.
     """
     return run_camsnap_sync(["list"])
+
+@mcp.tool()
+async def save_snap(camera_name: str, target_path: str | None = None) -> str:
+    """
+    Captures a single snapshot from the specified camera and saves it directly to target_path.
+    If target_path is not specified, it will be saved in the default temporary directory
+    with a timestamped filename.
+    Returns the absolute path to the saved image.
+    """
+    camsnap_bin = shutil.which("camsnap") or "camsnap"
+    
+    if not target_path:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        target_path = os.path.join(get_temp_dir(), f"{camera_name}_{timestamp}.jpg")
+        
+    target_path = os.path.abspath(target_path)
+    
+    # Ensure the parent directory exists
+    dir_name = os.path.dirname(target_path)
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
+        
+    cmd_args = get_base_args() + ["snap", camera_name, "--out", target_path]
+    
+    try:
+        process = await asyncio.create_subprocess_exec(
+            camsnap_bin, *cmd_args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=45)
+
+        if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
+            return f"Snapshot saved successfully to {target_path}"
+            
+        error_output = stderr.decode().strip()
+        raise RuntimeError(f"File empty or not saved. Stderr: {error_output}")
+    except Exception as e:
+        raise RuntimeError(f"Error during save snapshot: {str(e)}")
+
 
 @mcp.tool()
 async def capture_snap(camera_name: str) -> Image:
@@ -150,6 +191,51 @@ async def capture_clip(camera_name: str, duration: int = 10) -> str:
 
         if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
             return f"Clip saved successfully: {target_path}"
+        else:
+            raise RuntimeError(f"Error: Camsnap finished but the file {target_path} is missing or empty.")
+            
+    except asyncio.TimeoutError:
+        raise RuntimeError(f"Error: Timeout while recording clip of '{camera_name}' (duration: {duration}s).")
+    except Exception as e:
+        raise RuntimeError(f"Async critical error: {str(e)}")
+
+@mcp.tool()
+async def capture_raw_clip(camera_name: str, duration: int = 10) -> dict:
+    """
+    Records a short MP4 video clip from a camera and returns its raw binary content base64-encoded.
+    Returns a dictionary containing the base64-encoded MP4 data and the MIME type.
+    """
+    camsnap_bin = shutil.which("camsnap") or "camsnap"
+    
+    with tempfile.NamedTemporaryFile(dir=get_temp_dir(), prefix="clip_", suffix=".mp4", delete=False) as tmp_file:
+        target_path = tmp_file.name
+    
+    cmd_args = get_base_args() + ["clip", camera_name, "--dur", f"{duration}s", "--out", target_path]
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            camsnap_bin, *cmd_args,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL
+        )
+        # Add 15 seconds buffer to the requested duration for timeout
+        await asyncio.wait_for(process.wait(), timeout=duration + 15)
+
+        if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
+            with open(target_path, "rb") as f:
+                data = f.read()
+            
+            # Clean up the file
+            try:
+                os.remove(target_path)
+            except OSError:
+                pass
+                
+            base64_data = base64.b64encode(data).decode("utf-8")
+            return {
+                "mime_type": "video/mp4",
+                "data_base64": base64_data
+            }
         else:
             raise RuntimeError(f"Error: Camsnap finished but the file {target_path} is missing or empty.")
             
