@@ -1,40 +1,52 @@
-# camsnap-mcp
+# 📸 camsnap-mcp
 
-An MCP (Model Context Protocol) server for **camsnap** — control and analyze your IP/RTSP cameras directly from Claude Desktop, Cursor, or any MCP-compatible client.
+An MCP (Model Context Protocol) server for **camsnap** — control, capture, and analyze your IP/RTSP cameras directly from Claude Desktop, Cursor, or any MCP-compatible client.
 
-> **Note:** This MCP server is a wrapper around the [camsnap](https://github.com/steipete/camsnap) project.
+> [!NOTE]
+> This MCP server is a wrapper around the [camsnap](https://github.com/steipete/camsnap) project.
+
+```mermaid
+graph TD
+    Client[MCP Client e.g., Claude, Cursor] <-->|MCP JSON-RPC| Server[camsnap-mcp Server]
+    Server <-->|Subprocess Exec| Camsnap[camsnap CLI]
+    Camsnap <-->|FFmpeg / RTSP| Cameras[IP / RTSP Cameras]
+    Camsnap -->|Saves Assets| Disk[Local Disk / Temporary Directory]
+```
 
 ---
 
-## Repository Structure
+## 📂 Repository Structure
 
 ```
 camsnap-mcp/
-├── pyproject.toml
+├── [pyproject.toml](file:///gorgon/ia/mcp_camsnap/pyproject.toml)
 └── src/
     └── camsnap_mcp/
         ├── __init__.py
-        └── server.py
+        └── [server.py](file:///gorgon/ia/mcp_camsnap/src/camsnap_mcp/server.py)
 ```
 
 ---
 
-## Prerequisites
+## 🛠️ Prerequisites
 
 Before using this MCP server, you must have `camsnap` installed and configured on your system.
 
-1. **Install camsnap**: Follow the instructions at [steipete/camsnap](https://github.com/steipete/camsnap) to install the binary and its dependencies (like FFmpeg).
-2. **Configure cameras**: Ensure you have a valid configuration file. By default, `camsnap` looks for it in `$XDG_CONFIG_HOME/camsnap/config.yaml` or `~/.camsnap.yaml`. You can verify your setup by running `camsnap list` in your terminal.
+> [!IMPORTANT]
+> 1. **Install camsnap**: Follow the instructions at [steipete/camsnap](https://github.com/steipete/camsnap) to install the binary and its dependencies (such as FFmpeg).
+> 2. **Configure cameras**: Ensure you have a valid configuration file. By default, `camsnap` looks for it in `$XDG_CONFIG_HOME/camsnap/config.yaml` or `~/.camsnap.yaml`. You can verify your setup by running `camsnap list` in your terminal.
 
 ### Custom Configuration & Temp Paths
 
-- **`CAMSNAP_CONFIG`**: If your configuration file is in a non-standard location, you can specify it using this environment variable.
-- **`CAMSNAP_TMP_DIR`**: By default, MCP saves local files (snapshots, clips) to `~/.camsnap/tmp`. Use this to override the path if your MCP client runs in a restricted sandbox.
-- **`CAMSNAP_RESIZE_MAX`**: Set this to a pixel value (e.g., `1024` or `768`) to automatically resize captured snapshots. This is useful for reducing token usage in LLM prompts while maintaining enough detail for analysis. If not set, the original image size is returned.
+You can configure the server using the following environment variables:
+
+- **`CAMSNAP_CONFIG`**: If your configuration file is in a non-standard location, specify its absolute path.
+- **`CAMSNAP_TMP_DIR`**: Path to save local files (snapshots, clips). Defaults to `~/.camsnap/tmp`.
+- **`CAMSNAP_RESIZE_MAX`**: Set this to a pixel value (e.g., `1024` or `768`) to automatically downscale snapshots returned inline. This helps save token usage in LLM prompts while maintaining enough detail for analysis.
 
 ---
 
-## Installation
+## 🚀 Installation
 
 Add the following to your MCP client configuration (e.g., `claude_desktop_config.json`):
 
@@ -58,29 +70,37 @@ Add the following to your MCP client configuration (e.g., `claude_desktop_config
 }
 ```
 
-> `uvx` will automatically download and isolate the Python server. No manual `pip install` required.
+> [!TIP]
+> Using `uvx` automatically handles downloading and isolating the Python server. No manual `pip install` is required.
 
 ---
 
-## Available Tools
+## 🔧 Available Tools
 
 This MCP server exposes the following tools:
 
-| Tool | Description |
-|---|---|
-| `list_cameras` | Lists all cameras configured in your `~/.camsnap.yaml` file. |
-| `capture_snap` | Captures a frame from a camera and returns it inline directly to the client as an image. |
-| `capture_clip` | Records a short MP4 video clip from a camera for a specified duration to `~/.camsnap/tmp` and returns the absolute file path. |
+| Tool | Signature | Description | Return Type |
+|---|---|---|---|
+| **[list_cameras](file:///gorgon/ia/mcp_camsnap/src/camsnap_mcp/server.py#L68-L73)** | `list_cameras() -> str` | Lists all cameras configured in the camsnap config file. | `str` (List of cameras) |
+| **[capture_snap](file:///gorgon/ia/mcp_camsnap/src/camsnap_mcp/server.py#L113-L170)** | `capture_snap(camera_name: str) -> Image` | Captures a snapshot and returns it inline directly to the client. | `Image` (Inline image block) |
+| **[save_snap](file:///gorgon/ia/mcp_camsnap/src/camsnap_mcp/server.py#L75-L111)** | `save_snap(camera_name: str, target_path: str \| None = None) -> str` | Captures a snapshot and saves it directly to `target_path`. If not specified, saves to a timestamped file in the temp directory. | `str` (Confirmation message with path) |
+| **[capture_clip](file:///gorgon/ia/mcp_camsnap/src/camsnap_mcp/server.py#L172-L200)** | `capture_clip(camera_name: str, duration: int = 10) -> str` | Records a short MP4 video clip to a temporary file and returns its absolute path on the host system. | `str` (Confirmation message with path) |
+| **[capture_raw_clip](file:///gorgon/ia/mcp_camsnap/src/camsnap_mcp/server.py#L202-L248)** | `capture_raw_clip(camera_name: str, duration: int = 10) -> dict` | Records a short MP4 video clip and returns its raw binary content base64-encoded. | `dict` (MIME type and base64 string) |
 
 ---
 
-## Local Development
+## 💻 Local Development
 
 If you want to run or modify the server locally:
 
 ```bash
+# Clone the repository
 git clone https://github.com/mamorett/mcp_camsnap
 cd mcp_camsnap
-pip install -e "."
+
+# Install with development dependencies
+uv pip install -e .
+
+# Run the MCP server locally
 mcp-camsnap
 ```
